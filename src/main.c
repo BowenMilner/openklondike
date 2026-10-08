@@ -1,4 +1,6 @@
 #include "game.h"
+#include "solver.h"
+#include "history.h"
 #include "render.h"
 #include "input.h"
 #include "sound.h"
@@ -19,6 +21,7 @@
 
 typedef enum {
     STATE_MENU,
+    STATE_WARNING,
     STATE_OPTIONS,
     STATE_PLAYING,
     STATE_BOUNCING,
@@ -26,6 +29,9 @@ typedef enum {
 
 typedef enum {
     ACT_RESUME,
+    ACT_UNDO,
+    ACT_RESTORE,
+    ACT_CHECK,
     ACT_NEW,
     ACT_OPTIONS,
     ACT_SOUND,
@@ -47,7 +53,7 @@ static bool menu_pointer(const Input* in, Vector2* p) {
 
 // Upper bound on labels[]/actions[]: one slot per MenuAction. Each action
 // appears at most once, so build_menu can never overflow.
-#define MAX_MENU_ITEMS 6
+#define MAX_MENU_ITEMS 9
 
 static void play_event_sounds(unsigned ev) {
     if (ev & EV_WIN)        { sound_play(SFX_WIN); return; }
@@ -65,11 +71,14 @@ static void play_event_sounds(unsigned ev) {
 // all (mobile and web, where the OS or the browser tab owns the lifecycle).
 // Passing a fixed index instead put the gap above whatever happened to be last,
 // which on those builds was an ordinary setting.
-static int build_menu(bool resumable,
+static int build_menu(bool resumable, bool can_undo, bool can_restore,
                       const char** labels, MenuAction* actions, int* gap_before) {
     int n = 0;
     *gap_before = -1;
     if (resumable) { labels[n] = "Resume Game";                     actions[n++] = ACT_RESUME; }
+    if (can_undo) { labels[n] = "Undo last move"; actions[n++] = ACT_UNDO; }
+    if (can_restore) { labels[n] = "Restore winnable position"; actions[n++] = ACT_RESTORE; }
+    if (resumable) { labels[n] = "Check position"; actions[n++] = ACT_CHECK; }
     labels[n] = "New Game";                                         actions[n++] = ACT_NEW;
     labels[n] = "Options";                                          actions[n++] = ACT_OPTIONS;
     labels[n] = sound_is_enabled() ? "Sound: On" : "Sound: Off";    actions[n++] = ACT_SOUND;
@@ -122,6 +131,10 @@ static void cycle_option(DrawMode* draw, int item, int dir) {
 // can drive the loop from a per-frame callback (neither can block).
 typedef struct {
     Game*     game;
+    Solver*   solver;
+    SolverStatus proof_status;
+    History history;
+    bool warned;
     DragState drag;
     AppState  state;
     int       selected;
@@ -130,6 +143,17 @@ typedef struct {
     SimClock  clock;    // fixed-timestep accumulator (drained on the menu)
     double    prev_time;// GetTime() at the previous frame; 0 before the first
 } AppCtx;
+
+// Every analysis owns a snapshot. Replacing it cancels stale results.
+static void analyze_position(AppCtx* c, bool thorough) {
+    solver_destroy(c->solver);
+    c->solver = c->game ? solver_create_limited(c->game, thorough ? 500000 : 0) : NULL;
+    c->proof_status = c->solver ? solver_status(c->solver) : SOLVER_UNKNOWN;
+    c->warned = false;
+    if(c->game && c->proof_status == SOLVER_WINNABLE)
+        history_mark_winnable(&c->history, c->game);
+    render_set_solver_status(c->proof_status);
+}
 
 // Try to begin a drag from the card under the pointer. Returns true if a run
 // was grabbed.
@@ -182,7 +206,7 @@ static void frame_step(void* arg) {
     double now = GetTime();
     double dt = (c->prev_time > 0.0) ? now - c->prev_time : SIM_DT;
     c->prev_time = now;
-    if (c->state == STATE_MENU) sim_clock_reset(&c->clock);
+    if (c->state == STATE_MENU || c->state == STATE_WARNING) sim_clock_reset(&c->clock);
     int steps = sim_clock_advance(&c->clock, dt);
 
     // Sampled every frame, not only while playing, so a stale "was focused"
@@ -196,9 +220,10 @@ static void frame_step(void* arg) {
     const char* labels[MAX_MENU_ITEMS];
     MenuAction actions[MAX_MENU_ITEMS];
     int gap_before = -1;
-    int menu_count = build_menu(resumable, labels, actions, &gap_before);
+    int menu_count = build_menu(resumable, c->history.count > 0, c->history.has_winnable, labels, actions, &gap_before);
 
     switch (c->state) {
+    case STATE_WARNING:
     case STATE_MENU: {
         if (c->selected >= menu_count) c->selected = 0;
         if (in.escape_pressed) {
@@ -223,16 +248,26 @@ static void frame_step(void* arg) {
         if (do_select) {
             sound_play(SFX_MENU_SELECT);
             switch (actions[c->selected]) {
+            case ACT_UNDO:
+                if(c->game && history_undo(&c->history,c->game)) analyze_position(c,false);
+                c->drag.active=false;c->state=STATE_PLAYING;break;
+            case ACT_RESTORE:
+                if(c->game && history_restore_winnable(&c->history,c->game)) analyze_position(c,false);
+                c->drag.active=false;c->state=STATE_PLAYING;break;
+            case ACT_CHECK:
+                analyze_position(c,true);c->state=STATE_PLAYING;break;
             case ACT_RESUME:
                 c->state = STATE_PLAYING;
                 break;
             case ACT_NEW:
                 if (c->game) game_destroy(c->game);
                 c->game = game_create(c->draw_mode);
+                history_clear(&c->history);
+                analyze_position(c,false);
                 if (recorder_active()) { recorder_stop(); recorder_start(NULL); }
                 sound_play(SFX_DEAL);
                 c->drag.active = false;
-                c->state = STATE_PLAYING;
+                c->state = c->game ? STATE_PLAYING : STATE_MENU;
                 break;
             case ACT_OPTIONS:
                 c->state = STATE_OPTIONS;
@@ -298,13 +333,16 @@ static void frame_step(void* arg) {
             c->drag.active = false;
             break;
         }
-        if (in.escape_pressed) {
+        if (in.escape_pressed || ((in.left_pressed || in.touch_tap) &&
+            render_menu_button_hit(in.touch_tap ? (int)in.tap_x : in.mouse_x,
+                                   in.touch_tap ? (int)in.tap_y : in.mouse_y))) {
             c->state = STATE_MENU;
             c->selected = 0;
             c->drag.active = false;   // an in-flight run returns to its pile
             break;
         }
 
+        Game before = *c->game;
         game_frame_begin(c->game);
 
         if (!c->drag.active) {
@@ -359,6 +397,18 @@ static void frame_step(void* arg) {
             }
         }
 
+        if(c->game->events & (EV_DRAW | EV_RECYCLE | EV_MOVE | EV_FOUNDATION | EV_FLIP)) {
+            history_push(&c->history,&before);
+            analyze_position(c,false);
+        }
+        double search_end=GetTime()+0.004;
+        while(c->solver && c->proof_status==SOLVER_CHECKING && GetTime()<search_end)
+            c->proof_status=solver_step(c->solver,16);
+        if(c->proof_status==SOLVER_WINNABLE) history_mark_winnable(&c->history,c->game);
+        render_set_solver_status(c->proof_status);
+        if(c->proof_status==SOLVER_UNWINNABLE && !c->warned) {
+            c->warned=true;c->drag.active=false;c->state=STATE_WARNING;c->selected=1;
+        }
         for (int s = 0; s < steps; s++) game_tick(c->game);
         play_event_sounds(c->game->events);
 
@@ -384,8 +434,11 @@ static void frame_step(void* arg) {
     // input for the next frame -- a frame that skipped it would leak the current
     // key edges into the next.
     switch (c->state) {
+    case STATE_WARNING:
+        render_menu("NO WIN REMAINS", labels, menu_count, c->selected, gap_before);
+        break;
     case STATE_MENU:
-        render_menu("OPENKLONDIKE", labels, menu_count, c->selected, gap_before);
+        render_menu("STILL SOLVABLE", labels, menu_count, c->selected, gap_before);
         break;
     case STATE_OPTIONS: {
         const char* opt_labels[OPT_ITEMS];
@@ -404,6 +457,10 @@ static void frame_step(void* arg) {
 
 static void app_ctx_init(AppCtx* c) {
     c->game      = NULL;
+    c->solver    = NULL;
+    c->proof_status = SOLVER_UNKNOWN;
+    history_clear(&c->history);
+    c->warned = false;
     c->state     = STATE_MENU;
     c->selected  = 0;
     c->draw_mode = DRAW_ONE;
@@ -472,6 +529,7 @@ int main(int argc, char** argv) {
         frame_step(&ctx);
     }
     recorder_stop();
+    solver_destroy(ctx.solver);
     if (ctx.game) game_destroy(ctx.game);
     sound_shutdown();
     render_cleanup();

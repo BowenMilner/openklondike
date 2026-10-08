@@ -41,6 +41,17 @@ static const Color HILITE     = {255, 235, 120, 255};
 static const Color MENU_BG    = { 16,  40,  28, 255};
 static const Color TEXT_DIM   = {170, 190, 175, 255};
 
+static SolverStatus proof_status=SOLVER_UNKNOWN;
+void render_set_solver_status(SolverStatus status) { proof_status=status; }
+static const char* proof_label(void) {
+    switch(proof_status) {
+        case SOLVER_WINNABLE:return "Winnable";
+        case SOLVER_UNWINNABLE:return "Unwinnable";
+        case SOLVER_CHECKING:return "Checking...";
+        default:return "Not determined";
+    }
+}
+
 // Corner radius as a fraction of the card's short side. Scale-invariant, so a
 // 40px touch card and an 80px desktop card have the same silhouette.
 #define CARD_ROUND 0.12f
@@ -390,41 +401,22 @@ static bool is_dragged(const DragState* d, PileKind k, int idx, int card) {
         && card >= d->src_card;
 }
 
-// Full-width title bar. When a display cutout (front camera) sits in the bar,
-// the wordmark is laid out around it:
-//   - cutout absent            -> centred full word (the desktop look)
-//   - room both sides          -> "OPEN" left of the camera, "KLONDIKE" right
-//   - wide notch, nothing fits -> bar only, no wordmark
-// safe_area reports zeros everywhere except Android, so desktop and web always
-// take the first branch.
+// Keep the familiar solitaire title clear of the menu and display cutout.
 static void draw_titlebar(const Layout* L) {
     gfx_rect(0, 0, L->view_w, L->titlebar_h, FELT_DARK);
     gfx_line(0, L->titlebar_h, L->view_w, L->titlebar_h, SLOT_LINE);
-
     int fs = L->title_fs;
     int ty = (L->titlebar_h - fs) / 2;
-    int full = gfx_measure_text("OPENKLONDIKE", fs);
-
+    int full = gfx_measure_text("SOLITAIRE", fs);
+    int right = L->view_w - gfx_measure_text("MENU", fs * 3 / 4) - 2 * L->margin_x;
     SafeArea sa = safe_area_get();
-    int top = sa.top, cl = sa.cutout_left, cr = sa.cutout_right;
-    if (cr <= cl) {
-        // No horizontal extent reported. With no top inset either there is no
-        // cutout at all -> centred wordmark. If there IS an inset we could not
-        // localize, leave the bar bare rather than risk centring under a camera.
-        if (top <= 0)
-            gfx_text("OPENKLONDIKE", (L->view_w - full) / 2, ty, fs, TEXT_LIGHT);
-        return;
-    }
-    int pad     = fs / 2;
-    int left_w  = gfx_measure_text("OPEN", fs);
-    int right_w = gfx_measure_text("KLONDIKE", fs);
-    if (cl >= left_w + pad && L->view_w - cr >= right_w + pad) {
-        gfx_text("OPEN", cl - pad - left_w, ty, fs, TEXT_LIGHT);
-        gfx_text("KLONDIKE", cr + pad, ty, fs, TEXT_LIGHT);
-    } else if (cl >= full + pad) {
-        gfx_text("OPENKLONDIKE", cl - pad - full, ty, fs, TEXT_LIGHT);
-    } else if (L->view_w - cr >= full + pad) {
-        gfx_text("OPENKLONDIKE", cr + pad, ty, fs, TEXT_LIGHT);
+    if (sa.cutout_right > sa.cutout_left) {
+        if (sa.cutout_left >= full + L->margin_x)
+            gfx_text("SOLITAIRE", (sa.cutout_left-full)/2, ty, fs, TEXT_LIGHT);
+        else if (right-sa.cutout_right >= full + L->margin_x)
+            gfx_text("SOLITAIRE", sa.cutout_right+(right-sa.cutout_right-full)/2, ty, fs, TEXT_LIGHT);
+    } else if (sa.top <= 0 && right >= full + L->margin_x) {
+        gfx_text("SOLITAIRE", (right-full)/2, ty, fs, TEXT_LIGHT);
     }
 }
 
@@ -441,8 +433,8 @@ static void draw_titlebar(const Layout* L) {
 // over the board. The wordmark bar above is untouched either way.
 static void format_stats(const Game* g, char* out, int n) {
     int secs = g->timer_frames / SIM_HZ;
-    snprintf(out, n, "SCORE %d     TIME %d:%02d     MOVES %d",
-             g->score, secs / 60, secs % 60, g->moves);
+    snprintf(out, n, "%s    %d:%02d    %d moves",
+             proof_label(), secs / 60, secs % 60, g->moves);
 }
 
 static void draw_stats_line(const Game* g, const Layout* L) {
@@ -451,6 +443,8 @@ static void draw_stats_line(const Game* g, const Layout* L) {
     int fs = L->status_fs;
     // Centred over the board, which is what the eye is already tracking.
     int cx = L->tab_x[0] + (L->tab_x[6] + L->card_w - L->tab_x[0]) / 2;
+    int available=L->tab_x[6]+L->card_w-L->tab_x[0];
+    while(fs>8 && gfx_measure_text(buf,fs)>available)fs--;
     int y  = L->hud_y + (L->hud_h - fs) / 2;
     gfx_text(buf, cx - gfx_measure_text(buf, fs) / 2, y, fs, TEXT_DIM);
 }
@@ -461,7 +455,7 @@ static void draw_status_bar(const Game* g, const Layout* L) {
     int secs = g->timer_frames / SIM_HZ;
     gfx_rect(0, L->view_h - L->status_h, L->view_w, L->status_h, FELT_DARK);
     char buf[64];
-    snprintf(buf, sizeof buf, "Score %d", g->score);
+    snprintf(buf, sizeof buf, "%s", proof_label());
     gfx_text(buf, L->margin_x, y, fs, TEXT_LIGHT);
     snprintf(buf, sizeof buf, "Time %d:%02d", secs / 60, secs % 60);
     int tw = gfx_measure_text(buf, fs);
@@ -498,6 +492,9 @@ static void draw_board(void* vctx, int view_w, int view_h) {
     }
 
     draw_titlebar(&L);
+    int menu_fs=L.title_fs*3/4;
+    gfx_text("MENU", L.view_w-gfx_measure_text("MENU",menu_fs)-L.margin_x,
+             (L.titlebar_h-menu_fs)/2, menu_fs, TEXT_LIGHT);
 
     // --- Stock ---
     if (g->stock.count > 0) draw_card_back(&L, L.stock_x, L.stock_y);
@@ -560,6 +557,12 @@ static void draw_board(void* vctx, int view_w, int view_h) {
 }
 
 // --------------------------------------------------------------------------
+// Single-tap access to undo, proof checking and recovery.
+bool render_menu_button_hit(int mx,int my) {
+    Layout L=live_layout();
+    return mx>=0 && mx<L.view_w && my>=0 && my<L.titlebar_h;
+}
+
 // Lifecycle
 // --------------------------------------------------------------------------
 void render_init(void) {

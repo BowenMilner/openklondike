@@ -6,6 +6,7 @@ dist/
 *.so
 *.exe
 *.obj
+*.ipa
 
 # Vendored raylib, built from source by scripts/build_raylib_<platform>.sh
 third_party/raylib/

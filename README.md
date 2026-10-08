@@ -1,3 +1,37 @@
+# Still Solvable — an OpenKlondike fork
+
+Native Klondike with guaranteed winnable opening deals, tap-to-move cards, and
+an automatic check of the current position. Based on
+[Dan Heskett's OpenKlondike](https://github.com/dannyheskett/openklondike), under MIT.
+
+- Every new deal replays a stored winning solution through the actual game rules
+  before it is offered. Both draw-one and draw-three have certified deals.
+- The status reads **Winnable** only when a legal winning path has been verified.
+- **Unwinnable** opens a warning only after the complete reachable position graph
+  has been exhausted. You can undo or return to the last proven winnable position.
+- Search is incremental and bounded to keep play responsive. Difficult positions
+  can read **Not determined**; that is never presented as a loss. **Check position**
+  in the menu raises the search limit.
+- Tap **MENU** for undo, restore, options, or a new deal. Card artwork and touch
+  controls use OpenKlondike's native renderer.
+
+The opening bank is finite, with suit permutations for variety; it does
+not claim every random shuffle is solvable. The solver uses the complete deck,
+including hidden cards, to assess the actual deal.
+
+Build on macOS with full Xcode selected via `DEVELOPER_DIR`:
+
+```sh
+make test
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer make ios
+```
+
+The output `build/openklondike.ipa` is an **unsigned arm64 iPhone app**, ready for
+a sideloading tool to sign. Signing credentials and built IPAs stay outside Git.
+See [solver QA](docs/solver-qa.md) for validation and limitations.
+
+The original project documentation follows.
+
 # openklondike
 
 Klondike Solitaire written in C, in the spirit of the classic Windows 95 game:

@@ -41,6 +41,12 @@
 // screen size is scripted. gfx_measure_text returns a plausible proportional
 // width so any centring arithmetic that ran would not divide by zero.
 static int g_screen_w = BOARD_W, g_screen_h = BOARD_H;
+static unsigned g_red_pips, g_black_pips, g_rank_labels;
+static void record_pip(Color c) {
+    if (c.r == RED_PIP.r && c.g == RED_PIP.g && c.b == RED_PIP.b && c.a == 255) g_red_pips++;
+    if (c.r == BLACK_PIP.r && c.g == BLACK_PIP.g && c.b == BLACK_PIP.b && c.a == 255) g_black_pips++;
+}
+
 int  GetScreenWidth(void)  { return g_screen_w; }
 int  GetScreenHeight(void) { return g_screen_h; }
 bool IsWindowFocused(void) { return true; }
@@ -55,10 +61,15 @@ void gfx_rect_lines(int x, int y, int w, int h, Color c) { (void)x;(void)y;(void
 void gfx_line(int a, int b, int c, int d, Color e) { (void)a;(void)b;(void)c;(void)d;(void)e; }
 void gfx_rect_rounded(int x, int y, int w, int h, float r, Color c) { (void)x;(void)y;(void)w;(void)h;(void)r;(void)c; }
 void gfx_rect_rounded_lines(int x, int y, int w, int h, float r, Color c) { (void)x;(void)y;(void)w;(void)h;(void)r;(void)c; }
-void gfx_circle(float x, float y, float r, Color c) { (void)x;(void)y;(void)r;(void)c; }
+void gfx_circle(float x, float y, float r, Color c) { (void)x;(void)y;(void)r;record_pip(c); }
 void gfx_circle_lines(float x, float y, float r, Color c) { (void)x;(void)y;(void)r;(void)c; }
-void gfx_triangle(Vector2 a, Vector2 b, Vector2 c, Color d) { (void)a;(void)b;(void)c;(void)d; }
-void gfx_text(const char* t, int x, int y, int fs, Color c) { (void)t;(void)x;(void)y;(void)fs;(void)c; }
+void gfx_triangle(Vector2 a, Vector2 b, Vector2 c, Color d) { (void)a;(void)b;(void)c;record_pip(d); }
+void gfx_text(const char* t, int x, int y, int fs, Color c) {
+    (void)x;(void)y;
+    if (t[0] && fs >= 8 && c.a == 255 &&
+        ((c.r == RED_PIP.r && c.g == RED_PIP.g && c.b == RED_PIP.b) ||
+         (c.r == BLACK_PIP.r && c.g == BLACK_PIP.g && c.b == BLACK_PIP.b))) g_rank_labels++;
+}
 int  gfx_measure_text(const char* t, int fs) {
     int n = 0; while (t[n]) n++;
     return n * fs / 2;
@@ -535,7 +546,29 @@ static void test_drop_targeting(void) {
     PASS("drop_target");
 }
 
+// Every card must emit opaque rank labels and the correct coloured suit art
+// at small-phone, portrait, and landscape sizes, including repeated redraws.
+// This validates drawing commands; actual GPU/device presentation is separate.
+static void test_all_cards_keep_visible_art(void) {
+    const int sizes[][2] = {{320,480}, {1170,2532}, {2400,1080}};
+    for (unsigned screen = 0; screen < sizeof sizes / sizeof sizes[0]; screen++) {
+        Layout L = layout_scaled(sizes[screen][0], sizes[screen][1]);
+        for (int frame = 0; frame < 10; frame++) {
+            for (int suit = 0; suit < 4; suit++) for (int rank = 1; rank <= 13; rank++) {
+                g_red_pips = g_black_pips = g_rank_labels = 0;
+                Card c = {(uint8_t)rank, (uint8_t)suit, 1};
+                draw_card_face(&L, 0, 0, c, false);
+                if (g_rank_labels != 2) FAIL("card_art", "missing readable corner ranks");
+                if (card_is_red(c) ? (!g_red_pips || g_black_pips) : (!g_black_pips || g_red_pips))
+                    FAIL("card_art", "missing or incorrectly coloured suit art");
+            }
+        }
+    }
+    PASS("card_art_all_52_repeated");
+}
+
 int main(void) {
+    test_all_cards_keep_visible_art();
     test_fixed_board_never_scales();
     test_fixed_board_shrinks_below_minimum();
     test_scaled_board_fits_every_screen();

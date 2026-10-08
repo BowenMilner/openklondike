@@ -2,6 +2,7 @@
 #define OPENKLONDIKE_RENDER_H
 
 #include "game.h"
+#include "solver.h"
 #include "platform.h"
 #include "ok_types.h"
 #include <stdbool.h>
@@ -37,6 +38,9 @@ typedef struct {
     // far enough to be a drag rather than a tap, so a tap never twitches.
     int      lift;
 } DragState;
+
+void render_set_solver_status(SolverStatus status);
+bool render_menu_button_hit(int mx, int my);
 
 // Window setup and teardown (window.c) plus the recorder's capture canvas.
 void render_init(void);

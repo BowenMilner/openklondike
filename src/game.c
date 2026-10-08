@@ -1,4 +1,5 @@
 #include "game.h"
+#include "certified_deals.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -43,36 +44,11 @@ static Pile* loc_pile(Game* g, PileKind kind, int index) {
 Game* game_create(DrawMode mode) {
     Game* g = calloc(1, sizeof(Game));
     if (!g) return NULL;
-    g->draw_mode = mode;
-    g->phase     = PHASE_PLAY;
-
-    // Build an ordered 52-card deck.
-    Card deck[52];
-    int n = 0;
-    for (int suit = 0; suit < 4; suit++)
-        for (int rank = 1; rank <= 13; rank++)
-            deck[n++] = (Card){ (uint8_t)rank, (uint8_t)suit, 0 };
-
-    // Fisher-Yates shuffle.
-    for (int i = 51; i > 0; i--) {
-        int j = rand() % (i + 1);
-        Card t = deck[i]; deck[i] = deck[j]; deck[j] = t;
-    }
-
-    // Deal the tableau: column c gets c+1 cards, only the top one face up.
-    int d = 0;
-    for (int c = 0; c < 7; c++) {
-        for (int r = 0; r <= c; r++) {
-            Card card = deck[d++];
-            card.face_up = (r == c) ? 1 : 0;
-            pile_push(&g->tableau[c], card);
-        }
-    }
-    // The rest forms the stock, all face down.
-    while (d < 52) {
-        Card card = deck[d++];
-        card.face_up = 0;
-        pile_push(&g->stock, card);
+    // A new game is offered only after its stored solution has replayed
+    // successfully through these same move rules. No unverified shuffle escapes.
+    if (!certified_deal(g, mode, (unsigned)rand())) {
+        free(g);
+        return NULL;
     }
     return g;
 }

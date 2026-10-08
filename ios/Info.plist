@@ -3,11 +3,11 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleName</key>
-    <string>openklondike</string>
+    <string>Still Solvable</string>
     <key>CFBundleDisplayName</key>
-    <string>openklondike</string>
+    <string>Still Solvable</string>
     <key>CFBundleIdentifier</key>
-    <string>com.danheskett.openklondike</string>
+    <string>dev.bowenmilner.stillsolvable</string>
     <key>CFBundleExecutable</key>
     <string>Openklondike</string>
     <key>CFBundlePackageType</key>

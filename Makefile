@@ -14,7 +14,7 @@ RAYLIB_WIN32 := third_party/raylib-install-win32
 MINIH264_INC := third_party/minih264
 MINIMP4_INC  := third_party/minimp4
 
-SRC := src/main.c src/game.c src/tick.c src/input.c \
+SRC := src/main.c src/game.c src/solver.c src/certified_deals.c src/history.c src/tick.c src/input.c \
        src/render.c src/render_fixed.c src/render_scaled.c src/gfx_raylib.c \
        src/safe_area.c src/menu.c src/present.c src/window.c \
        src/sound.c src/audio_raylib.c \
@@ -374,15 +374,15 @@ web-serve: $(WEB_OUT)
 # ---------------------------------------------------------------------------
 IOS_MIN        ?= 15.0
 IOS_APP_NAME   := Openklondike
-IOS_BUNDLE_ID  := com.danheskett.openklondike
+IOS_BUNDLE_ID  := dev.bowenmilner.stillsolvable
 # CFBundleVersion must increase with every App Store upload, so it tracks the
 # release number exactly like ANDROID_VERSION_CODE. Clamped to >= 1 for local
 # builds with no release tags yet.
-IOS_BUILD_NUMBER ?= $(OPENKLONDIKE_VERSION)
+IOS_BUILD_NUMBER ?= 1
 ifeq ($(IOS_BUILD_NUMBER),0)
 IOS_BUILD_NUMBER := 1
 endif
-IOS_VERSION_NAME ?= 1.0.$(IOS_BUILD_NUMBER)
+IOS_VERSION_NAME ?= 1.0.0
 # Signing is opt-in: set IOS_SIGN_IDENTITY (and IOS_PROFILE) to produce an
 # App Store-submittable .ipa. Unset, the build stays unsigned for Device Farm,
 # which re-signs on upload. Mirrors how the Play AAB gates on a keystore.
@@ -391,7 +391,7 @@ IOS_PROFILE       ?=
 IOS_TEAM_ID       ?=
 # The raylib-backed TUs (gfx_raylib.c, audio_raylib.c) and the recorder encoders
 # are replaced by the ios/ backends, so they are not in this list.
-IOS_C_SRC      := src/main.c src/game.c src/tick.c src/input.c \
+IOS_C_SRC      := src/main.c src/game.c src/solver.c src/certified_deals.c src/history.c src/tick.c src/input.c \
                   src/render.c src/render_fixed.c src/render_scaled.c \
                   src/safe_area.c src/menu.c src/present.c src/window.c \
                   src/sound.c src/recorder.c
@@ -411,6 +411,9 @@ define ios_build
 	for f in $(IOS_MM_SRC); do xcrun -sdk $(1) clang++ -target $(2) $(IOS_MMFLAGS) -c $$f -o $(4)/$$(basename $$f .mm).o || exit 1; done
 	xcrun -sdk $(1) clang++ -target $(2) $(4)/*.o $(IOS_FRAMEWORKS) -o $(3)/$(IOS_APP_NAME)
 	cp ios/Info.plist $(3)/Info.plist
+	plutil -replace CFBundleIdentifier -string $(IOS_BUNDLE_ID) $(3)/Info.plist
+	cp LICENSE NOTICE $(3)/
+	cp third_party/fonts/nunito/OFL.txt $(3)/Nunito-OFL.txt
 endef
 
 IOS_SIM_APP := build/ios-sim/$(IOS_APP_NAME).app
@@ -517,18 +520,34 @@ TEST_BIN        := build/test_game
 TEST_LAYOUT_BIN := build/test_layout
 TEST_INPUT_BIN  := build/test_input
 TEST_MENU_BIN   := build/test_menu
+TEST_SOLVER_BIN := build/test_solver
+TEST_HISTORY_BIN := build/test_history
+TEST_APP_BIN := build/test_app
+TEST_CERT_SRC := src/solver.c src/certified_deals.c
 
-test: $(TEST_BIN) $(TEST_LAYOUT_BIN) $(TEST_INPUT_BIN) $(TEST_MENU_BIN)
+test: $(TEST_BIN) $(TEST_LAYOUT_BIN) $(TEST_INPUT_BIN) $(TEST_MENU_BIN) $(TEST_SOLVER_BIN) $(TEST_HISTORY_BIN) $(TEST_APP_BIN)
 	./$(TEST_BIN)
 	./$(TEST_LAYOUT_BIN)
 	./$(TEST_INPUT_BIN)
 	./$(TEST_MENU_BIN)
+	./$(TEST_SOLVER_BIN)
+	./$(TEST_HISTORY_BIN)
+	./$(TEST_APP_BIN)
 
 $(TEST_BIN): tests/test_game.c $(wildcard src/*.c src/*.h) | $(OBJ_DIR)
-	gcc $(CFLAGS_COMMON) -O0 -g tests/test_game.c -o $(TEST_BIN) -lm
+	gcc $(CFLAGS_COMMON) -O0 -g tests/test_game.c $(TEST_CERT_SRC) -o $(TEST_BIN) -lm
 
 $(TEST_LAYOUT_BIN): tests/test_layout.c $(wildcard src/*.c src/*.h) | $(OBJ_DIR)
-	gcc $(CFLAGS_COMMON) -O0 -g tests/test_layout.c -o $(TEST_LAYOUT_BIN) -lm
+	gcc $(CFLAGS_COMMON) -O0 -g tests/test_layout.c $(TEST_CERT_SRC) -o $(TEST_LAYOUT_BIN) -lm
+
+$(TEST_SOLVER_BIN): tests/test_solver.c $(wildcard src/*.c src/*.h) | $(OBJ_DIR)
+	gcc $(CFLAGS_COMMON) -O2 -g tests/test_solver.c src/certified_deals.c -o $@ -lm
+
+$(TEST_HISTORY_BIN): tests/test_history.c $(wildcard src/*.c src/*.h) | $(OBJ_DIR)
+	gcc $(CFLAGS_COMMON) -O0 -g tests/test_history.c -o $@ -lm
+
+$(TEST_APP_BIN): tests/test_app.c $(wildcard src/*.c src/*.h) | $(OBJ_DIR)
+	gcc $(CFLAGS_COMMON) -O2 -g tests/test_app.c src/game.c $(TEST_CERT_SRC) src/history.c src/tick.c -o $@ -lm
 
 $(TEST_MENU_BIN): tests/test_menu.c $(wildcard src/*.c src/*.h) | $(OBJ_DIR)
 	gcc $(CFLAGS_COMMON) -O0 -g tests/test_menu.c -o $(TEST_MENU_BIN) -lm
