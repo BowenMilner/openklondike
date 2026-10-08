@@ -1,6 +1,7 @@
 #import "SolitaireViewController.h"
 
 #import "native_session.h"
+#import "board_layout.h"
 
 #import <QuartzCore/QuartzCore.h>
 #import <UIKit/UIKit.h>
@@ -83,6 +84,7 @@ typedef struct {
     NSInteger _hintDestinationIndex;
     CGFloat _cardWidth;
     CGFloat _cardHeight;
+    CGFloat _topCardWidth, _topCardHeight, _topInset;
     CGFloat _columnGap;
     CGFloat _columnX[7];
     CGFloat _tableauY;
@@ -187,49 +189,33 @@ typedef struct {
     CGFloat height = CGRectGetHeight(self.bounds);
     if (width < 1.0 || height < 1.0) return;
 
-    CGFloat sideInset = 7.0;
-    _columnGap = 4.5;
-    CGFloat available = MAX(0.0, width - sideInset * 2.0 - _columnGap * 6.0);
-    CGFloat maxCardWidth = available / 7.0;
-    // In landscape, reserve enough vertical room for both the foundation row
-    // and a compressed tableau. Portrait keeps the natural width-first size.
-    _cardHeight = MIN(maxCardWidth * 1.4, MAX(42.0, (height - 12.0) / 2.35));
-    _cardWidth = _cardHeight / 1.4;
-    CGFloat boardWidth = _cardWidth * 7.0 + _columnGap * 6.0;
-    CGFloat left = (width - boardWidth) * 0.5;
-    for (NSInteger i = 0; i < 7; i++) _columnX[i] = left + i * (_cardWidth + _columnGap);
-    _tableauY = _cardHeight + 12.0;
-
-    CGFloat tableHeight = MAX(0.0, height - _tableauY - 2.0);
-    NSInteger maxDownSteps = 0;
-    NSInteger maxUpSteps = 0;
+    int down[7] = {0}, up[7] = {0};
     if (_hasGame) {
-        for (NSInteger column = 0; column < 7; column++) {
+        for (int column = 0; column < 7; column++) {
             const Pile *pile = &_game.tableau[column];
-            NSInteger downCount = 0;
-            for (NSInteger i = 0; i < pile->count; i++) {
-                if (!pile->cards[i].face_up) downCount++;
-                else break;
-            }
-            NSInteger upCount = pile->count - downCount;
-            maxDownSteps = MAX(maxDownSteps, downCount);
-            maxUpSteps = MAX(maxUpSteps, MAX(0, upCount - 1));
+            int hidden = 0;
+            while (hidden < pile->count && !pile->cards[hidden].face_up) hidden++;
+            down[column] = hidden;
+            up[column] = MAX(0, pile->count - hidden - 1);
         }
     }
-
-    CGFloat naturalDown = _cardHeight * 0.19;
-    CGFloat naturalUp = _cardHeight * 0.29;
-    CGFloat fanNeed = maxDownSteps * naturalDown + maxUpSteps * naturalUp;
-    CGFloat fanRoom = MAX(0.0, tableHeight - _cardHeight);
-    CGFloat fanScale = fanNeed > fanRoom && fanNeed > 0.0 ? fanRoom / fanNeed : 1.0;
-    _faceDownSpacing = maxDownSteps ? MAX(3.2, naturalDown * fanScale) : naturalDown;
-    _faceUpSpacing = maxUpSteps ? MAX(4.6, naturalUp * fanScale) : naturalUp;
+    OKBoardLayout layout = ok_board_layout(width, height, width > height, down, up);
+    _cardWidth = layout.card_width;
+    _cardHeight = layout.card_height;
+    _topCardWidth = layout.top_width;
+    _topCardHeight = layout.top_height;
+    _topInset = layout.top_inset;
+    _columnGap = layout.column_gap;
+    for (int c = 0; c < 7; c++) _columnX[c] = layout.column_x[c];
+    _tableauY = layout.tableau_y;
+    _faceDownSpacing = layout.down_spacing;
+    _faceUpSpacing = layout.up_spacing;
 
     NSMutableArray<NSValue *> *slotFrames = [NSMutableArray arrayWithCapacity:13];
-    [slotFrames addObject:[NSValue valueWithCGRect:CGRectMake(_columnX[0], 0, _cardWidth, _cardHeight)]];
-    [slotFrames addObject:[NSValue valueWithCGRect:CGRectMake(_columnX[1], 0, _cardWidth, _cardHeight)]];
+    [slotFrames addObject:[NSValue valueWithCGRect:CGRectMake(_columnX[0] + _topInset, 0, _topCardWidth, _topCardHeight)]];
+    [slotFrames addObject:[NSValue valueWithCGRect:CGRectMake(_columnX[1] + _topInset, 0, _topCardWidth, _topCardHeight)]];
     for (NSInteger f = 0; f < 4; f++) {
-        [slotFrames addObject:[NSValue valueWithCGRect:CGRectMake(_columnX[f + 3], 0, _cardWidth, _cardHeight)]];
+        [slotFrames addObject:[NSValue valueWithCGRect:CGRectMake(_columnX[f + 3] + _topInset, 0, _topCardWidth, _topCardHeight)]];
     }
     for (NSInteger c = 0; c < 7; c++) {
         [slotFrames addObject:[NSValue valueWithCGRect:CGRectMake(_columnX[c], _tableauY, _cardWidth, _cardHeight)]];
@@ -447,20 +433,20 @@ typedef struct {
         NSNumber *key = @([self keyForCard:card]);
         [usedKeys addObject:key];
         [self buttonForCard:card kind:LOC_STOCK index:0 cardIndex:c
-                      frame:CGRectMake(_columnX[0], 0, _cardWidth, _cardHeight)];
+                      frame:CGRectMake(_columnX[0] + _topInset, 0, _topCardWidth, _topCardHeight)];
     }
 
     // Draw-three waste shows up to the three exposed cards, with the newest on
     // top. Older exposed cards can be seen but only the newest is movable.
     NSInteger wasteStart = MAX(0, _game.waste.count - MIN(3, MAX(1, _game.waste_drawn)));
-    CGFloat wasteFan = _cardWidth * 0.22;
+    CGFloat wasteFan = _topCardWidth * 0.22;
     for (NSInteger c = wasteStart; c < _game.waste.count; c++) {
         Card card = _game.waste.cards[c];
         NSNumber *key = @([self keyForCard:card]);
         [usedKeys addObject:key];
         CGFloat offset = (CGFloat)(c - wasteStart) * wasteFan;
         [self buttonForCard:card kind:LOC_WASTE index:0 cardIndex:c
-                      frame:CGRectMake(_columnX[1] + offset, 0, _cardWidth, _cardHeight)];
+                      frame:CGRectMake(_columnX[1] + _topInset + offset, 0, _topCardWidth, _topCardHeight)];
     }
 
     for (NSInteger f = 0; f < 4; f++) {
@@ -471,7 +457,7 @@ typedef struct {
         NSNumber *key = @([self keyForCard:card]);
         [usedKeys addObject:key];
         [self buttonForCard:card kind:LOC_FOUNDATION index:f cardIndex:c
-                      frame:CGRectMake(_columnX[f + 3], 0, _cardWidth, _cardHeight)];
+                      frame:CGRectMake(_columnX[f + 3] + _topInset, 0, _topCardWidth, _topCardHeight)];
     }
 
     for (NSInteger column = 0; column < 7; column++) {
@@ -782,8 +768,8 @@ typedef struct {
     _feltShadeLayer.frame = _feltView.bounds;
     if (!_headerHeightConstraint || !_statusHeightConstraint || !_footerHeightConstraint) return;
     BOOL landscape = CGRectGetWidth(self.view.bounds) > CGRectGetHeight(self.view.bounds);
-    CGFloat headerHeight = landscape ? 34.0 : 43.0;
-    CGFloat statusHeight = landscape ? 30.0 : 36.0;
+    CGFloat headerHeight = landscape ? 30.0 : 43.0;
+    CGFloat statusHeight = landscape ? 28.0 : 36.0;
     CGFloat footerHeight = landscape ? 56.0 : 67.0;
     if (_headerHeightConstraint.constant != headerHeight ||
         _statusHeightConstraint.constant != statusHeight ||
@@ -791,6 +777,14 @@ typedef struct {
         _headerHeightConstraint.constant = headerHeight;
         _statusHeightConstraint.constant = statusHeight;
         _footerHeightConstraint.constant = footerHeight;
+        // Keep the full icon and title visible inside the compact landscape bar.
+        for (UIButton *button in @[_undoButton, _hintButton, _newGameButton]) {
+            UIButtonConfiguration *configuration = button.configuration;
+            configuration.contentInsets = NSDirectionalEdgeInsetsMake(landscape ? 3 : 6, 4,
+                                                                       landscape ? 3 : 6, 4);
+            button.configuration = configuration;
+        }
+
         [self.view setNeedsLayout];
     }
 }
@@ -1042,9 +1036,9 @@ typedef struct {
         case SOLVER_CHECKING: return @"Checking deal";
         case SOLVER_WINNABLE: return @"Winnable";
         case SOLVER_UNWINNABLE: return @"Unwinnable";
-        case SOLVER_UNKNOWN: return @"Status unknown";
+        case SOLVER_UNKNOWN: return @"Not determined";
     }
-    return @"Status unknown";
+    return @"Not determined";
 }
 
 - (UIColor *)statusColorForStatus:(SolverStatus)status game:(const Game *)game {
@@ -1328,7 +1322,9 @@ typedef struct {
 - (void)showSettings:(id)sender {
     UIButton *source = (UIButton *)sender;
     UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"Game settings"
-                                                                   message:@"Choose how cards are drawn from the stock."
+                                                                   message:(_session && ok_session_status(_session) == SOLVER_UNKNOWN)
+                ? @"The search limit was reached or a result could not be established. You can keep playing or check deeper."
+                : @"Choose how cards are drawn from the stock."
                                                             preferredStyle:UIAlertControllerStyleActionSheet];
     NSString *one = _drawMode == DRAW_ONE ? @"Draw one card · Current" : @"Draw one card";
     NSString *three = _drawMode == DRAW_THREE ? @"Draw three cards · Current" : @"Draw three cards";
@@ -1337,6 +1333,10 @@ typedef struct {
                                               handler:^(__unused UIAlertAction *action) { [weakSelf requestModeChange:DRAW_ONE]; }]];
     [sheet addAction:[UIAlertAction actionWithTitle:three style:UIAlertActionStyleDefault
                                               handler:^(__unused UIAlertAction *action) { [weakSelf requestModeChange:DRAW_THREE]; }]];
+    if (_session && ok_session_status(_session) == SOLVER_UNKNOWN) {
+        [sheet addAction:[UIAlertAction actionWithTitle:@"Check position" style:UIAlertActionStyleDefault
+            handler:^(__unused UIAlertAction *action) { [weakSelf checkPosition]; }]];
+    }
     if (_session && ok_session_can_restore(_session)) {
         [sheet addAction:[UIAlertAction actionWithTitle:@"Restore last winnable position"
                                                   style:UIAlertActionStyleDefault
@@ -1347,6 +1347,13 @@ typedef struct {
     popover.sourceView = source ?: self.view;
     popover.sourceRect = source ? source.bounds : CGRectMake(CGRectGetMidX(self.view.bounds), 30, 1, 1);
     [self presentViewController:sheet animated:YES completion:nil];
+}
+
+- (void)checkPosition {
+    if (!_session) return;
+    [self clearHint];
+    ok_session_check(_session);
+    [self updateStatusForce:YES];
 }
 
 - (void)updateDrawModeControl {

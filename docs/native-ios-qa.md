@@ -61,3 +61,35 @@ never Unwinnable; only exhaustive search proves loss. Full hidden-card state
 is private to the engine/solver and is not exposed in card labels or hints.
 Current board state persists; undo history and the rescue checkpoint are scoped
 to the live session and rebuilt when a saved board is loaded.
+
+## Landscape follow-up — 1.1.1/build 4
+
+The user confirmed the 1.1.0 UI worked on the phone and reported cramped
+landscape face-up stacks. The landscape top row now uses 72% size cards with
+unchanged proportions; tighter header/status spacing moves it upward. The
+layout reserves at least a quarter-card strip per exposed card, compressing
+backs first, and sizes very deep runs to fit. It budgets each actual column
+independently. Portrait geometry is unchanged.
+
+Four new geometry checks cover the reported visible stack lengths without
+card identities, a full 13-card run above six hidden cards, independent fan
+budgets, and unchanged portrait composition: 67 total checks pass.
+
+A separate review found that UNKNOWN is an expected bounded-search result:
+100,000 states for an ordinary check, with allocation/resource uncertainty also
+remaining unknown. The screenshot cannot identify its exact cause. The label
+now reads Not determined. Settings offers the existing user-triggered
+500,000-state Check position retry once ordinary analysis is undetermined;
+it still uses frame slices and does not imply a guaranteed result. Repeated
+retries use the same cap. Exact-loss semantics are unchanged.
+
+The new UIKit build was launched on the existing iOS 26.5 Simulator. Actual
+tap moves created two face-up tableau builds, and landscape inspection showed
+readable exposed ranks. Final device IPA validation passed. Physical-device
+acceptance of 1.1.1 remains separate; prior phone acceptance applies to 1.1.0.
+
+The final landscape footer keeps its original 44-point button height and uses
+smaller vertical content insets so the full icons and titles fit. Real Undo
+and replay passed in landscape. Repeated iOS builds now clear the staged deck
+before copying it, preventing duplicate nested Cards resources; the IPA checker
+rejects this packaging regression and Makefile edits invalidate iOS targets.

@@ -46,6 +46,8 @@ def check(path):
         if "_OBJC_CLASS_$_SolitaireViewController" not in symbol_names:
             raise ValueError("native solitaire controller is missing from the executable")
         resource_root = str(pathlib.PurePosixPath(plists[0]).parent / "Cards")
+        if any(name.startswith(resource_root + "/Cards/") for name in package.namelist()):
+            raise ValueError("duplicate nested card resources from a repeated build")
         faces = set()
         for name in [f"{suit}{rank:02}.png" for suit in "cdhs" for rank in range(1, 14)] + ["back.png"]:
             pixels = package.read(resource_root + "/" + name)
