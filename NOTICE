@@ -18,3 +18,7 @@ license:
 openklondike is an original implementation of Klondike solitaire. It is not
 affiliated with, derived from, or endorsed by any other game or its rights
 holders.
+
+- Playing-card faces and red card back in ios/Cards, from AustinGabriel's
+  Public Domain Playing Cards collection, are available under CC0 1.0 Universal.
+  Source revision and license text: ios/Cards/LICENSE.

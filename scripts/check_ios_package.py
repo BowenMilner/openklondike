@@ -3,6 +3,7 @@
 import pathlib
 import plistlib
 import subprocess
+import struct
 import sys
 import tempfile
 import zipfile
@@ -42,7 +43,25 @@ def check(path):
             callback = f"-[{delegate} scene:willConnectToSession:options:]"
             if callback not in symbols:
                 raise ValueError(f"scene delegate has no window connection callback: {delegate}")
-    print(f"PASS: IPA integrity, device platform, scene manifest and compiled delegate "
+        if "_OBJC_CLASS_$_SolitaireViewController" not in symbol_names:
+            raise ValueError("native solitaire controller is missing from the executable")
+        resource_root = str(pathlib.PurePosixPath(plists[0]).parent / "Cards")
+        faces = set()
+        for name in [f"{suit}{rank:02}.png" for suit in "cdhs" for rank in range(1, 14)] + ["back.png"]:
+            pixels = package.read(resource_root + "/" + name)
+            if pixels[:8] != b"\x89PNG\r\n\x1a\n" or len(pixels) < 512:
+                raise ValueError(f"invalid card image: {name}")
+            width, height = struct.unpack(">II", pixels[16:24])
+            if width < 300 or not 1.35 < height / width < 1.5:
+                raise ValueError(f"incorrect card size/ratio: {name}: {width}x{height}")
+            if name != "back.png":
+                faces.add(pixels)
+        if len(faces) != 52:
+            raise ValueError("the deck must contain 52 different card faces")
+        for resource in ["felt.png", "LICENSE"]:
+            if not package.read(resource_root + "/" + resource):
+                raise ValueError(f"missing card resource: {resource}")
+    print(f"PASS: IPA integrity, device platform, scene lifecycle, native controller and 52-card deck "
           f"(version {info['CFBundleShortVersionString']}, build {info['CFBundleVersion']})")
 
 

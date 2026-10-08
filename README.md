@@ -12,8 +12,10 @@ an automatic check of the current position. Based on
 - Search is incremental and bounded to keep play responsive. Difficult positions
   can read **Not determined**; that is never presented as a loss. **Check position**
   in the menu raises the search limit.
-- Tap **MENU** for undo, restore, options, or a new deal. Card artwork and touch
-  controls use OpenKlondike's native renderer.
+- The iOS app uses a native UIKit board with traditional 500×700 playing cards,
+  green felt, animated tap moves, Undo, Hint, and New Game. Press and hold a
+  card, then tap a destination to choose a move explicitly. Settings includes
+  restore and a deeper position check. Both orientations and draw modes work.
 
 The opening bank is finite, with suit permutations for variety; it does
 not claim every random shuffle is solvable. The solver uses the complete deck,
@@ -28,12 +30,17 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer make ios
 
 The output `build/openklondike.ipa` is an **unsigned arm64 iPhone app**, ready for
 a sideloading tool to sign. Signing credentials and built IPAs stay outside Git.
-Version 1.0.1 uses UIKit scenes to address the iOS 27 launch crash reported in
-LiveContainer 3.8.10. The device build checks the final IPA's scene configuration
-against its compiled delegate; a phone launch remains a separate acceptance check.
-See [solver QA](docs/solver-qa.md) for validation and limitations.
+Version 1.1.0 rebuilds the iOS presentation while retaining the shared C game
+and exact solver. It retains the UIKit scene lifecycle added in 1.0.1 for the
+iOS 27 launch regression. The final IPA is checked for its scene delegate,
+native controller, and all 52 card images. Simulator acceptance is recorded in
+[native iOS QA](docs/native-ios-qa.md); launch inside LiveContainer on the phone
+still needs verification. See [solver QA](docs/solver-qa.md) for proof limits.
 
-The original project documentation follows.
+The upstream documentation below describes the retained desktop, web, Android,
+and legacy Metal implementation. The current iOS target instead compiles
+`ios/native_session.c`, `ios/SolitaireViewController.mm`, and `ios/ios_main.mm`;
+it does not link the legacy renderer. Its deck is CC0; see [card notices](ios/Cards/LICENSE).
 
 # openklondike
 
@@ -53,7 +60,7 @@ platform-independent and shared unchanged.
 | Linux / Windows / macOS | native (raylib) | fixed | resizable window | mouse |
 | Web (WASM) | Emscripten (raylib) | fixed **or** scaled, chosen at runtime | follows the browser | mouse + touch |
 | Android | NativeActivity (raylib) | scaled | portrait **and** landscape | touch |
-| iOS | native Metal (no raylib) | scaled | portrait **and** landscape | touch |
+| iOS | native UIKit (no raylib) | adaptive | portrait **and** landscape | tap / hold then destination |
 
 Note that "fixed" and "scaled" describe the *board*, not the device orientation:
 the scaled board is the one phones use, and it works in either orientation.
@@ -194,7 +201,8 @@ Serve `build/web` over HTTP (not `file://`) and open `openklondike.html`.
 
 ## Tests
 
-Unit tests with no raylib and no window — `make test` runs all three:
+Unit tests with no raylib and no window — `make test` includes game, layout,
+renderer, gesture, solver, history, app-loop, and native-session suites:
 
 - **`test_game`** — the deal, move legality, run moves, auto-flip, scoring, the
   stock/waste cycle, the win, and the fixed-timestep clock that keeps the play
@@ -300,7 +308,7 @@ frame-exact regardless of the live window size.
 ```
 openklondike/
 ├── src/            # shared C sources + gfx/audio raylib backends
-├── ios/            # native Metal / UIKit backend (Objective-C++) + store assets
+├── ios/            # current UIKit app, native session, CC0 cards + legacy Metal sources
 ├── android/        # NativeActivity manifest, resources, Java activity + Play assets
 ├── web/            # Emscripten HTML shell
 ├── scripts/        # raylib build scripts, asset/font/screenshot generators

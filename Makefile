@@ -378,11 +378,11 @@ IOS_BUNDLE_ID  := dev.bowenmilner.stillsolvable
 # CFBundleVersion must increase with every App Store upload, so it tracks the
 # release number exactly like ANDROID_VERSION_CODE. Clamped to >= 1 for local
 # builds with no release tags yet.
-IOS_BUILD_NUMBER ?= 2
+IOS_BUILD_NUMBER ?= 3
 ifeq ($(IOS_BUILD_NUMBER),0)
 IOS_BUILD_NUMBER := 1
 endif
-IOS_VERSION_NAME ?= 1.0.1
+IOS_VERSION_NAME ?= 1.1.0
 # Signing is opt-in: set IOS_SIGN_IDENTITY (and IOS_PROFILE) to produce an
 # App Store-submittable .ipa. Unset, the build stays unsigned for Device Farm,
 # which re-signs on upload. Mirrors how the Play AAB gates on a keystore.
@@ -391,17 +391,14 @@ IOS_PROFILE       ?=
 IOS_TEAM_ID       ?=
 # The raylib-backed TUs (gfx_raylib.c, audio_raylib.c) and the recorder encoders
 # are replaced by the ios/ backends, so they are not in this list.
-IOS_C_SRC      := src/main.c src/game.c src/solver.c src/certified_deals.c src/history.c src/tick.c src/input.c \
-                  src/render.c src/render_fixed.c src/render_scaled.c \
-                  src/safe_area.c src/menu.c src/present.c src/window.c \
-                  src/sound.c src/recorder.c
-IOS_MM_SRC     := ios/ios_main.mm ios/gfx_metal.mm ios/plat_ios.mm ios/audio_ios.mm
+IOS_C_SRC      := src/game.c src/solver.c src/certified_deals.c src/history.c src/tick.c ios/native_session.c
+IOS_MM_SRC     := ios/ios_main.mm ios/SolitaireViewController.mm
 IOS_CFLAGS     := -std=c99   -Wall -Wextra -Isrc -Iios -DPLATFORM_IOS -O2
 IOS_MMFLAGS    := -std=c++14 -fobjc-arc -Wall -Wextra -Isrc -Iios -DPLATFORM_IOS -O2
-IOS_FRAMEWORKS := -framework UIKit -framework Metal -framework QuartzCore \
-                  -framework CoreGraphics -framework AVFoundation -framework Foundation
+IOS_FRAMEWORKS := -framework UIKit -framework QuartzCore \
+                  -framework CoreGraphics -framework Foundation
 IOS_DEPS       := $(IOS_C_SRC) $(IOS_MM_SRC) $(wildcard src/*.h ios/*.h) ios/Info.plist \
-                  $(wildcard ios/Assets.xcassets/*/* ios/Assets.xcassets/*)
+                  $(wildcard ios/Assets.xcassets/*/* ios/Assets.xcassets/* ios/Cards/*)
 
 # $(call ios_build,<sdk>,<target-triple>,<app-dir>,<obj-dir>) -- compile + link
 # the app binary into <app-dir>/$(IOS_APP_NAME) and copy the Info.plist.
@@ -414,12 +411,18 @@ define ios_build
 	plutil -replace CFBundleIdentifier -string $(IOS_BUNDLE_ID) $(3)/Info.plist
 	cp LICENSE NOTICE $(3)/
 	cp third_party/fonts/nunito/OFL.txt $(3)/Nunito-OFL.txt
+	cp -R ios/Cards $(3)/Cards
+	plutil -replace CFBundleVersion -string $(IOS_BUILD_NUMBER) $(3)/Info.plist
+	plutil -replace CFBundleShortVersionString -string $(IOS_VERSION_NAME) $(3)/Info.plist
 endef
 
 IOS_SIM_APP := build/ios-sim/$(IOS_APP_NAME).app
 ios-sim: $(IOS_SIM_APP)
 $(IOS_SIM_APP): $(IOS_DEPS)
 	$(call ios_build,iphonesimulator,arm64-apple-ios$(IOS_MIN)-simulator,build/ios-sim/$(IOS_APP_NAME).app,build/ios-sim/obj)
+	/usr/libexec/PlistBuddy -c "Add :CFBundleSupportedPlatforms array" \
+	    -c "Add :CFBundleSupportedPlatforms:0 string iPhoneSimulator" \
+	    -c "Add :DTPlatformName string iphonesimulator" $(IOS_SIM_APP)/Info.plist
 	@echo "[ios] built $(IOS_SIM_APP)"
 
 # Device .ipa: unsigned; a .ipa is just a zip of Payload/<App>.app. Xcode injects
@@ -524,9 +527,10 @@ TEST_MENU_BIN   := build/test_menu
 TEST_SOLVER_BIN := build/test_solver
 TEST_HISTORY_BIN := build/test_history
 TEST_APP_BIN := build/test_app
+TEST_NATIVE_BIN := build/test_native_session
 TEST_CERT_SRC := src/solver.c src/certified_deals.c
 
-test: $(TEST_BIN) $(TEST_LAYOUT_BIN) $(TEST_INPUT_BIN) $(TEST_MENU_BIN) $(TEST_SOLVER_BIN) $(TEST_HISTORY_BIN) $(TEST_APP_BIN)
+test: $(TEST_BIN) $(TEST_LAYOUT_BIN) $(TEST_INPUT_BIN) $(TEST_MENU_BIN) $(TEST_SOLVER_BIN) $(TEST_HISTORY_BIN) $(TEST_APP_BIN) $(TEST_NATIVE_BIN)
 	./$(TEST_BIN)
 	./$(TEST_LAYOUT_BIN)
 	./$(TEST_INPUT_BIN)
@@ -534,6 +538,7 @@ test: $(TEST_BIN) $(TEST_LAYOUT_BIN) $(TEST_INPUT_BIN) $(TEST_MENU_BIN) $(TEST_S
 	./$(TEST_SOLVER_BIN)
 	./$(TEST_HISTORY_BIN)
 	./$(TEST_APP_BIN)
+	./$(TEST_NATIVE_BIN)
 
 $(TEST_BIN): tests/test_game.c $(wildcard src/*.c src/*.h) | $(OBJ_DIR)
 	gcc $(CFLAGS_COMMON) -O0 -g tests/test_game.c $(TEST_CERT_SRC) -o $(TEST_BIN) -lm
@@ -549,6 +554,9 @@ $(TEST_HISTORY_BIN): tests/test_history.c $(wildcard src/*.c src/*.h) | $(OBJ_DI
 
 $(TEST_APP_BIN): tests/test_app.c $(wildcard src/*.c src/*.h) | $(OBJ_DIR)
 	gcc $(CFLAGS_COMMON) -O2 -g tests/test_app.c src/game.c $(TEST_CERT_SRC) src/history.c src/tick.c -o $@ -lm
+
+$(TEST_NATIVE_BIN): tests/test_native_session.c ios/native_session.c ios/native_session.h $(wildcard src/*.c src/*.h) | $(OBJ_DIR)
+	gcc $(CFLAGS_COMMON) -Iios -O2 -g tests/test_native_session.c ios/native_session.c src/game.c $(TEST_CERT_SRC) src/history.c src/tick.c -o $@ -lm
 
 $(TEST_MENU_BIN): tests/test_menu.c $(wildcard src/*.c src/*.h) | $(OBJ_DIR)
 	gcc $(CFLAGS_COMMON) -O0 -g tests/test_menu.c -o $(TEST_MENU_BIN) -lm

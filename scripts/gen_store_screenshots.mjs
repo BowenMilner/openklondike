@@ -1,3 +1,5 @@
+// LEGACY WEB/ANDROID CAPTURE: this is not the current native iOS UI.
+// iOS 1.1 uses real Simulator screenshots and scripts/native_promo.py.
 // Capture the Google Play and App Store screenshot sets from the built web
 // bundle, at the exact pixel sizes each store requires.
 //

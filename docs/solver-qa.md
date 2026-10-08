@@ -60,3 +60,9 @@ that the named scene delegate and window connection callback are compiled into
 the packaged executable. The old 1.0.0 IPA fails this check. These package checks
 and a Simulator build do not confirm a corrected launch inside LiveContainer;
 that requires importing 1.0.1 and retesting on the phone.
+
+## Native iOS 1.1.0
+
+The UIKit rebuild has separate [native iOS QA](native-ios-qa.md), including
+real Simulator gameplay and media provenance. The engine and proof semantics
+above remain shared. Legacy rendering tests do not validate the UIKit board.
