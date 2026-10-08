@@ -2,6 +2,7 @@
 
 #import "native_session.h"
 #import "board_layout.h"
+#import "position.h"
 
 #import <QuartzCore/QuartzCore.h>
 #import <UIKit/UIKit.h>
@@ -1033,7 +1034,11 @@ typedef struct {
 - (NSString *)statusTextForGame:(const Game *)game status:(SolverStatus)status {
     if (game && game->phase == PHASE_WON) return @"Solved";
     switch (status) {
-        case SOLVER_CHECKING: return @"Checking deal";
+        case SOLVER_CHECKING: {
+            size_t states = ok_session_search_states(_session);
+            return states >= 1000 ? [NSString stringWithFormat:@"Checking · %luk", (unsigned long)(states / 1000)]
+                                  : [NSString stringWithFormat:@"Checking · %lu", (unsigned long)states];
+        }
         case SOLVER_WINNABLE: return @"Winnable";
         case SOLVER_UNWINNABLE: return @"Unwinnable";
         case SOLVER_UNKNOWN: return @"Not determined";
@@ -1323,7 +1328,10 @@ typedef struct {
     UIButton *source = (UIButton *)sender;
     UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"Game settings"
                                                                    message:(_session && ok_session_status(_session) == SOLVER_UNKNOWN)
-                ? @"The search limit was reached or a result could not be established. You can keep playing or check deeper."
+                ? [NSString stringWithFormat:@"No conclusion after %@ positions. %@",
+                    [NSNumberFormatter localizedStringFromNumber:@(ok_session_search_states(_session)) numberStyle:NSNumberFormatterDecimalStyle],
+                    ok_session_can_check_deeper(_session) ? @"A deeper check may help."
+                        : @"Export this game so the exact deal can be investigated."]
                 : @"Choose how cards are drawn from the stock."
                                                             preferredStyle:UIAlertControllerStyleActionSheet];
     NSString *one = _drawMode == DRAW_ONE ? @"Draw one card · Current" : @"Draw one card";
@@ -1333,7 +1341,7 @@ typedef struct {
                                               handler:^(__unused UIAlertAction *action) { [weakSelf requestModeChange:DRAW_ONE]; }]];
     [sheet addAction:[UIAlertAction actionWithTitle:three style:UIAlertActionStyleDefault
                                               handler:^(__unused UIAlertAction *action) { [weakSelf requestModeChange:DRAW_THREE]; }]];
-    if (_session && ok_session_status(_session) == SOLVER_UNKNOWN) {
+    if (ok_session_can_check_deeper(_session)) {
         [sheet addAction:[UIAlertAction actionWithTitle:@"Check position" style:UIAlertActionStyleDefault
             handler:^(__unused UIAlertAction *action) { [weakSelf checkPosition]; }]];
     }
@@ -1342,11 +1350,42 @@ typedef struct {
                                                   style:UIAlertActionStyleDefault
                                                 handler:^(__unused UIAlertAction *action) { [weakSelf restoreWinnablePosition]; }]];
     }
+    [sheet addAction:[UIAlertAction actionWithTitle:@"Export game" style:UIAlertActionStyleDefault
+        handler:^(__unused UIAlertAction *action) { [weakSelf exportPosition]; }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
     UIPopoverPresentationController *popover = sheet.popoverPresentationController;
     popover.sourceView = source ?: self.view;
     popover.sourceRect = source ? source.bounds : CGRectMake(CGRectGetMidX(self.view.bounds), 30, 1, 1);
     [self presentViewController:sheet animated:YES completion:nil];
+}
+
+- (void)exportPosition {
+    if (!_session) return;
+    uint8_t bytes[OK_POSITION_BYTES];
+    if (!position_encode(ok_session_game(_session), bytes)) return;
+    NSString *name = [NSString stringWithFormat:@"Still-Solvable-%@.solitaire", NSUUID.UUID.UUIDString];
+    NSURL *url = [[NSURL fileURLWithPath:NSTemporaryDirectory() isDirectory:YES] URLByAppendingPathComponent:name];
+    NSError *error = nil;
+    if (![[NSData dataWithBytes:bytes length:sizeof(bytes)] writeToURL:url options:NSDataWritingAtomic error:&error]) {
+        UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Couldn't export this game"
+            message:@"The file couldn't be created. Please try again."
+            preferredStyle:UIAlertControllerStyleAlert];
+        [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleCancel handler:nil]];
+        [self dismissViewControllerAnimated:YES completion:^{ [self presentViewController:alert animated:YES completion:nil]; }];
+        return;
+    }
+    UIActivityViewController *activity = [[UIActivityViewController alloc] initWithActivityItems:@[url] applicationActivities:nil];
+    activity.popoverPresentationController.sourceView = self.view;
+    activity.popoverPresentationController.sourceRect = CGRectMake(CGRectGetMidX(self.view.bounds), CGRectGetMidY(self.view.bounds), 1, 1);
+    activity.completionWithItemsHandler = ^(__unused UIActivityType type, __unused BOOL completed,
+        __unused NSArray *items, __unused NSError *activityError) {
+        [NSFileManager.defaultManager removeItemAtURL:url error:nil];
+    };
+    if (self.presentedViewController) {
+        [self dismissViewControllerAnimated:YES completion:^{ [self presentViewController:activity animated:YES completion:nil]; }];
+    } else {
+        [self presentViewController:activity animated:YES completion:nil];
+    }
 }
 
 - (void)checkPosition {

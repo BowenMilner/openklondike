@@ -220,6 +220,59 @@ static SolverStatus finish_search(Solver *solver) {
     return SOLVER_UNKNOWN;
 }
 
+// This test translation unit includes solver.c directly, which lets the
+// uncached-search regressions isolate the public search API from certificates
+// inserted earlier in the same process. No solver may be alive when called.
+static void clear_solver_proof_cache(void) {
+    size_t i;
+    for (i = 0; i < CACHE_MAX_ENTRIES; i++) {
+        if (g_cache[i].used) bundle_release(g_cache[i].bundle);
+        memset(&g_cache[i], 0, sizeof(g_cache[i]));
+    }
+    memset(g_cache_index, 0, sizeof(g_cache_index));
+    g_cache_next = 0;
+    g_cache_mutations = 0;
+    if (g_bundle_bytes != 0) FAIL("proof cache reset left a referenced bundle behind");
+}
+
+static SolverStatus finish_known_winnable_search(Solver *solver) {
+    unsigned calls;
+    for (calls = 0; calls < 10000; calls++) {
+        SolverStatus status = solver_step(solver, 256);
+        if (status == SOLVER_UNWINNABLE)
+            FAIL("complete search falsely rejected a position derived from a verified win");
+        if (status != SOLVER_CHECKING) return status;
+    }
+    FAIL("known-winnable midgame search did not finish within the test bound");
+    return SOLVER_UNKNOWN;
+}
+
+static Game make_uncached_certified_midgame(DrawMode mode, unsigned choice,
+                                            size_t prefix_moves) {
+    Game game = {0};
+    Solver *certificate;
+    size_t i, length;
+    if (!certified_deal(&game, mode, choice))
+        FAIL("could not make deterministic certified opening for midgame regression");
+    certificate = solver_create(&game);
+    if (!certificate || solver_status(certificate) != SOLVER_WINNABLE)
+        FAIL("certified opening did not provide its verified winning line");
+    length = solver_solution_length(certificate);
+    if (length <= prefix_moves)
+        FAIL("certificate is too short to make the requested midgame fixture");
+    for (i = 0; i < prefix_moves; i++) {
+        SolverMove move;
+        if (!solver_solution_move(certificate, i, &move) ||
+            !solver_apply_move(&game, &move))
+            FAIL("verified certificate prefix was rejected by the move engine");
+    }
+    solver_destroy(certificate);
+    if (game.phase != PHASE_PLAY)
+        FAIL("midgame fixture reached the win before the selected prefix endpoint");
+    clear_solver_proof_cache();
+    return game;
+}
+
 static void assert_standard_opening(const Game *g) {
     bool seen[4][14] = {{false}};
     int total = 0, col, i, suit, rank;
@@ -332,6 +385,71 @@ static void test_proof_cache_eviction_pressure(void) {
         }
     }
     PASS("solver_proof_cache_eviction_pressure");
+}
+
+static void test_uncached_midgame_search_never_false_loses_and_replays(void) {
+    typedef struct {
+        DrawMode mode;
+        unsigned choice;
+        size_t prefix_moves;
+        size_t small_cap;
+    } MidgameFixture;
+    // This is 86 legal actions into a deterministic 172-action certified
+    // DRAW_ONE solution; the second is 15 actions into a certified DRAW_THREE
+    // solution. Their exact states are uncached before each search. The old
+    // depth-first order exhausted its useful work without proving the first
+    // position. Best-first ordering must solve both without ever calling a
+    // bounded partial graph unwinnable.
+    const MidgameFixture fixtures[] = {
+        {DRAW_ONE, 29, 86, 1000},
+        {DRAW_THREE, 0, 15, 50},
+    };
+    size_t fixture_index;
+    for (fixture_index = 0;
+         fixture_index < sizeof(fixtures) / sizeof(fixtures[0]);
+         fixture_index++) {
+        const size_t full_cap = 100000;
+        const MidgameFixture *fixture = &fixtures[fixture_index];
+        Game midgame = make_uncached_certified_midgame(
+            fixture->mode, fixture->choice, fixture->prefix_moves);
+        Solver *capped = solver_create_limited(&midgame, fixture->small_cap);
+        Solver *solver;
+        Game replay;
+        size_t length, i;
+
+        if (!capped || solver_status(capped) != SOLVER_CHECKING)
+            FAIL("midgame fixture was not uncached when the bounded search began");
+        if (finish_search(capped) != SOLVER_UNKNOWN)
+            FAIL("small state cap did not leave the known-winnable midgame unknown");
+        if (solver_status(capped) == SOLVER_UNWINNABLE)
+            FAIL("a partial midgame graph was incorrectly called unwinnable");
+        solver_destroy(capped);
+
+        solver = solver_create_limited(&midgame, full_cap);
+        if (!solver || solver_status(solver) != SOLVER_CHECKING)
+            FAIL("full search did not start from an uncached legal midgame");
+        if (solver_step(solver, 1) == SOLVER_UNWINNABLE)
+            FAIL("one partial expansion falsely proved a known-winnable midgame lost");
+        if (finish_known_winnable_search(solver) != SOLVER_WINNABLE)
+            FAIL("uncached legal midgame was not proved winnable within 100,000 states");
+
+        length = solver_solution_length(solver);
+        if (length == 0) FAIL("uncached midgame proof did not include a replayable line");
+        replay = midgame;
+        for (i = 0; i < length; i++) {
+            SolverMove move;
+            if (!solver_solution_move(solver, i, &move))
+                FAIL("midgame proof ended before its declared move count");
+            if (!solver_apply_move(&replay, &move))
+                FAIL("midgame proof contains a move rejected by the shared game rules");
+        }
+        if (replay.phase != PHASE_WON)
+            FAIL("midgame proof replay did not complete all four foundations");
+        if (solver_solution_move(solver, length, &(SolverMove){0}))
+            FAIL("midgame proof exposed a move beyond its declared endpoint");
+        solver_destroy(solver);
+    }
+    PASS("solver_uncached_midgame_replay_both_modes");
 }
 
 static void test_position_identity_is_exact_and_ignores_bookkeeping(void) {
@@ -520,6 +638,7 @@ static void test_foundation_takeback_uses_game_rules(void) {
 int main(void) {
     test_every_bundled_certificate_replays_in_both_modes();
     test_proof_cache_eviction_pressure();
+    test_uncached_midgame_search_never_false_loses_and_replays();
     test_position_identity_is_exact_and_ignores_bookkeeping();
     test_cycle_exhaustion_proves_loss();
     test_standard_stock_recycle_is_ordered_and_exhaustive();

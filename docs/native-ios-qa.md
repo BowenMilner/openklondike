@@ -93,3 +93,31 @@ smaller vertical content insets so the full icons and titles fit. Real Undo
 and replay passed in landscape. Repeated iOS builds now clear the staged deck
 before copying it, preventing duplicate nested Cards resources; the IPA checker
 rejects this packaging regression and Makefile edits invalidate iOS targets.
+
+## Unresolved-position follow-up — 1.2.0/build 5
+
+All 73 automated checks passed, including the new uncached search, session
+progress/retry and four position-file suites. Device and Simulator builds
+completed without compiler warnings. The final IPA passed archive integrity,
+platform, scene lifecycle, native controller and all 52 card resource checks.
+
+The new build was installed and launched on the existing iOS 26.5 Simulator.
+Settings → Export game presented the system sharing panel with a 79-byte
+`.solitaire` file and Copy / Save to Files actions. Reading the file produced
+through that real UI, the offline tool proved it winnable from an empty process
+cache (1,176 states, 122 actions) and replayed every action to `PHASE_WON`.
+Canceling the sharing panel returned to the board and removed that temporary
+export. No message or upload was sent. A previous export interrupted by process
+termination remained in the OS temporary directory, as expected. No export
+or personal Simulator identifier is committed.
+
+The status includes a state count while checking. After an undetermined normal
+search, Settings explains the explored count and offers one deeper check. After
+a deeper undetermined search, it recommends exporting the game; repeating the
+same deeper restart is prevented. Moves/undo create fresh analysis normally.
+
+The saved-game key and existing snapshot layout are unchanged. The user's exact
+17-move board still requires its exported file to reproduce. Simulator checks
+and corpus improvements do not prove that phone position is resolved, nor do
+they replace LiveContainer acceptance of 1.2.0. Existing runtime reused; no new
+runtime or simulator device was downloaded or created.

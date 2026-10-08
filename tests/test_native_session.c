@@ -314,7 +314,26 @@ static void test_elapsed_time_is_fixed_step_and_capped_after_stall(void) {
     PASS("elapsed_time_and_stall_cap");
 }
 
+static void test_analysis_progress_and_repeat_check(void) {
+    OKSession *session = ok_session_create(DRAW_ONE, 14);
+    Game dead = stock_deadend(DRAW_ONE);
+    if (!session || !ok_session_load(session, &dead)) FAIL("analysis progress setup failed");
+    if (ok_session_search_states(session) != 1) FAIL("new uncached analysis did not expose its root");
+    ok_session_check(session);
+    finish_session_search(session);
+    size_t count = ok_session_search_states(session);
+    if (ok_session_status(session) != SOLVER_UNWINNABLE || count != 25)
+        FAIL("progress count did not match the exhausted stock graph");
+    ok_session_check(session);
+    if (ok_session_status(session) != SOLVER_UNWINNABLE || ok_session_search_states(session) != count)
+        FAIL("repeat deeper check discarded the completed result and restarted the same search");
+    if (ok_session_can_check_deeper(session)) FAIL("completed deep check was offered again");
+    ok_session_destroy(session);
+    PASS("analysis_progress_and_repeat_check");
+}
+
 int main(void) {
+    test_analysis_progress_and_repeat_check();
     test_certified_new_games_both_modes();
     test_bad_snapshot_load_is_rejected_without_mutation();
     test_hint_uses_real_rules_and_session_routes_it();

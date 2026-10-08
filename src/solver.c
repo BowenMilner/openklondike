@@ -17,6 +17,8 @@ typedef struct { uint8_t bytes[KEY_SIZE]; } StateKey;
 typedef struct {
     StateKey key;
     int32_t parent;
+    uint32_t depth;
+    int32_t priority;
     SolverMove move;
 } SearchNode;
 
@@ -368,6 +370,63 @@ static bool visited_contains(const Solver *s, const StateKey *key) {
     return false;
 }
 
+/*
+ * Order the open graph by visible progress, but never discard a state.
+ * Foundation cards are the strongest signal; exposed tableau cards are next,
+ * followed by stock cards already turned over this pass. The latter gently
+ * advances stock-only paths without letting a draw outrank a tableau reveal.
+ */
+static int32_t state_priority(const Game *g) {
+    int foundations = 0, face_up_tableau = 0, i, j;
+    for (i = 0; i < 4; i++) foundations += g->foundation[i].count;
+    for (i = 0; i < 7; i++)
+        for (j = 0; j < g->tableau[i].count; j++)
+            face_up_tableau += g->tableau[i].cards[j].face_up != 0;
+    return foundations * 10000 + face_up_tableau * 100 + (52 - g->stock.count);
+}
+
+static bool frontier_precedes(const Solver *s, uint32_t a, uint32_t b) {
+    const SearchNode *left = &s->nodes[a], *right = &s->nodes[b];
+    if (left->priority != right->priority) return left->priority > right->priority;
+    if (left->depth != right->depth) return left->depth < right->depth;
+    /* Later siblings retain the existing ordered-candidate preference. */
+    return a > b;
+}
+
+static void frontier_push(Solver *s, uint32_t node_id) {
+    size_t index = s->frontier_count++;
+    s->frontier[index] = node_id;
+    while (index > 0) {
+        size_t parent = (index - 1u) / 2u;
+        uint32_t parent_id = s->frontier[parent];
+        if (!frontier_precedes(s, node_id, parent_id)) break;
+        s->frontier[index] = parent_id;
+        index = parent;
+    }
+    s->frontier[index] = node_id;
+}
+
+static uint32_t frontier_pop(Solver *s) {
+    uint32_t result = s->frontier[0];
+    uint32_t tail = s->frontier[--s->frontier_count];
+    size_t index = 0;
+    if (s->frontier_count == 0) return result;
+    while (index < s->frontier_count / 2u) {
+        size_t child = index * 2u + 1u;
+        uint32_t child_id = s->frontier[child];
+        if (child + 1u < s->frontier_count &&
+            frontier_precedes(s, s->frontier[child + 1u], child_id)) {
+            child++;
+            child_id = s->frontier[child];
+        }
+        if (!frontier_precedes(s, child_id, tail)) break;
+        s->frontier[index] = child_id;
+        index = child;
+    }
+    s->frontier[index] = tail;
+    return result;
+}
+
 static int candidate_priority(const Game *g, const SolverMove *m) {
     const Pile *src = NULL;
     Card c = { 0, 0, 0 };
@@ -600,10 +659,12 @@ Solver *solver_create_limited(const Game *snapshot, size_t max_states) {
     s->table_capacity = table_capacity;
     s->nodes[0].key = root;
     s->nodes[0].parent = -1;
+    s->nodes[0].depth = 0;
+    s->nodes[0].priority = state_priority(snapshot);
     memset(&s->nodes[0].move, 0, sizeof(s->nodes[0].move));
     s->node_count = 1;
-    s->frontier[0] = 0;
-    s->frontier_count = 1;
+    s->frontier_count = 0;
+    frontier_push(s, 0);
     (void)visited_insert(s, &root, 0);
     return s;
 }
@@ -644,7 +705,7 @@ SolverStatus solver_step(Solver *s, unsigned expansion_budget) {
             s->status = SOLVER_UNWINNABLE;
             break;
         }
-        node_id = s->frontier[--s->frontier_count];
+        node_id = frontier_pop(s);
         unpack_game(&s->nodes[node_id].key, &state);
         s->expanded++; spent++;
         if (is_won(&state)) {
@@ -673,6 +734,8 @@ SolverStatus solver_step(Solver *s, unsigned expansion_budget) {
             child = (uint32_t)s->node_count;
             s->nodes[child].key = key;
             s->nodes[child].parent = (int32_t)node_id;
+            s->nodes[child].depth = s->nodes[node_id].depth + 1u;
+            s->nodes[child].priority = state_priority(&next);
             s->nodes[child].move = actions[ai].move;
             if (!visited_insert(s, &key, child)) continue;
             s->node_count++;
@@ -682,7 +745,7 @@ SolverStatus solver_step(Solver *s, unsigned expansion_budget) {
             }
             cached_tail = cache_find(&key);
             if (cached_tail && finish_with_cached_suffix(s, child, cached_tail)) break;
-            s->frontier[s->frontier_count++] = child;
+            frontier_push(s, child);
         }
     }
     return s->status;

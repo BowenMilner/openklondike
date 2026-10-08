@@ -24,6 +24,8 @@ bool ok_session_can_restore(const OKSession *session);
 bool ok_session_undo(OKSession *session);
 bool ok_session_restore(OKSession *session);
 void ok_session_check(OKSession *session);
+size_t ok_session_search_states(const OKSession *session);
+bool ok_session_can_check_deeper(const OKSession *session);
 // Hints reveal only the next legal action, never hidden card identities.
 bool ok_session_hint(const OKSession *session, SolverMove *move);
 #ifdef __cplusplus

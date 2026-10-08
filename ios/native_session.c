@@ -12,6 +12,7 @@ struct OKSession {
     Solver *solver;
     History history;
     SimClock clock;
+    bool thorough;
 };
 
 static void mark_proof(OKSession *session) {
@@ -20,6 +21,7 @@ static void mark_proof(OKSession *session) {
 }
 
 static void analyze(OKSession *session, bool thorough) {
+    session->thorough = thorough;
     solver_destroy(session->solver);
     session->solver = solver_create_limited(&session->game, thorough ? 500000 : 0);
     mark_proof(session);
@@ -56,6 +58,7 @@ bool ok_session_new(OKSession *session, DrawMode mode, unsigned choice) {
     solver_destroy(session->solver);
     session->solver = solver;
     session->game = next;
+    session->thorough = false;
     history_clear(&session->history);
     sim_clock_reset(&session->clock);
     mark_proof(session);
@@ -78,6 +81,7 @@ bool ok_session_load(OKSession *session, const Game *snapshot) {
     solver_destroy(session->solver);
     session->solver = solver;
     session->game = *snapshot;
+    session->thorough = false;
     session->game.events = 0;
     history_clear(&session->history);
     sim_clock_reset(&session->clock);
@@ -170,9 +174,17 @@ bool ok_session_restore(OKSession *session) {
 }
 
 void ok_session_check(OKSession *session) {
-    if (session) analyze(session, true);
+    if (session && !session->thorough) analyze(session, true);
 }
 
 bool ok_session_hint(const OKSession *session, SolverMove *move) {
     return session && solver_solution_move(session->solver, 0, move);
+}
+
+size_t ok_session_search_states(const OKSession *session) {
+    return session ? solver_state_count(session->solver) : 0;
+}
+
+bool ok_session_can_check_deeper(const OKSession *session) {
+    return session && !session->thorough && solver_status(session->solver) == SOLVER_UNKNOWN;
 }

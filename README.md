@@ -11,11 +11,12 @@ an automatic check of the current position. Based on
   has been exhausted. You can undo or return to the last proven winnable position.
 - Search is incremental and bounded to keep play responsive. Difficult positions
   can read **Not determined**; that is never presented as a loss. **Check position**
-  in Settings appears after an undetermined result and raises the search limit.
+  in Settings offers one deeper check after an undetermined result. **Export game**
+  saves the exact deal for reproducible investigation.
 - The iOS app uses a native UIKit board with traditional 500×700 playing cards,
   green felt, animated tap moves, Undo, Hint, and New Game. Press and hold a
   card, then tap a destination to choose a move explicitly. Settings includes
-  restore and a deeper position check. Both orientations and draw modes work.
+  restore, a deeper position check, and game export. Both orientations and draw modes work.
 
 The opening bank is finite, with suit permutations for variety; it does
 not claim every random shuffle is solvable. The solver uses the complete deck,
@@ -30,12 +31,14 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer make ios
 
 The output `build/openklondike.ipa` is an **unsigned arm64 iPhone app**, ready for
 a sideloading tool to sign. Signing credentials and built IPAs stay outside Git.
-Version 1.1.1 refines landscape stack visibility after the 1.1.0 UIKit rebuild,
-retaining the shared C game and exact solver. It retains the UIKit scene lifecycle added in 1.0.1 for the
+Version 1.2.0 improves search ordering for uncached positions and adds exact-game
+export. It retains the landscape refinements and the native UIKit board, plus
+the scene lifecycle added in 1.0.1 for the
 iOS 27 launch regression. The final IPA is checked for its scene delegate,
 native controller, and all 52 card images. Simulator acceptance is recorded in
-[native iOS QA](docs/native-ios-qa.md); launch inside LiveContainer on the phone
-still needs verification. See [solver QA](docs/solver-qa.md) for proof limits.
+[native iOS QA](docs/native-ios-qa.md). The user confirmed 1.1.0 works on the
+phone; 1.2.0 still needs physical-device acceptance. See [solver QA](docs/solver-qa.md)
+for proof limits and [position files](docs/position-files.md) for reproducing a game.
 
 The upstream documentation below describes the retained desktop, web, Android,
 and legacy Metal implementation. The current iOS target instead compiles
