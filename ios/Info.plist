@@ -32,6 +32,25 @@
     <false/>
     <key>UILaunchScreen</key>
     <dict/>
+    <key>UIApplicationSceneManifest</key>
+    <dict>
+        <key>UIApplicationSupportsMultipleScenes</key>
+        <false/>
+        <key>UISceneConfigurations</key>
+        <dict>
+            <key>UIWindowSceneSessionRoleApplication</key>
+            <array>
+                <dict>
+                    <key>UISceneConfigurationName</key>
+                    <string>Solitaire</string>
+                    <key>UISceneClassName</key>
+                    <string>UIWindowScene</string>
+                    <key>UISceneDelegateClassName</key>
+                    <string>OKSceneDelegate</string>
+                </dict>
+            </array>
+        </dict>
+    </dict>
     <!-- Both orientations: a seven-column card game reads well sideways, and the
          board is laid out from the live screen size every frame, so a rotation
          just re-fits it. The Metal view recomputes its drawable and safe-area

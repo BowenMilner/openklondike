@@ -32,6 +32,7 @@ history overwrites and undo operations. The app-loop harness checks certified
 new deals in both draw modes, invalidation of stale analysis after a move,
 warning only after a proven loss, menu Undo and Restore, and that `UNKNOWN`
 never opens the loss warning.
+It also checks that reconnecting an iOS scene preserves the live game and solver.
 
 The stale-proof warning fixture injects a valid dead-end board before a legal
 stock tap. It tests analysis replacement and warning wiring; it does not
@@ -42,3 +43,20 @@ run on the development Mac; this is the test suite runtime, not a cold-search
 latency guarantee for arbitrary deals. These checks do not render through the
 GPU and do not replace Simulator or physical-device acceptance. The separate
 layout renderer test validates emitted CPU-side card art and geometry only.
+
+## iOS 27 launch regression (1.0.1)
+
+A physical-device LiveContainer 3.8.10 crash report identified a UIKit trap in
+`___UIApplicationEvaluateRuntimeIssueForNoSceneLifecycleAdoption_block_invoke`.
+Version 1.0.0 used an AppDelegate-owned window with no scene manifest. Version
+1.0.1 adopts `UIWindowScene`, creates its window in `OKSceneDelegate`, and handles
+focus and renderer cleanup through scene callbacks. This follows Apple's
+[scene lifecycle requirement](https://developer.apple.com/documentation/uikit/transitioning-to-the-uikit-scene-based-life-cycle)
+for apps linked against the iOS 27 SDK.
+
+The device IPA build now runs `scripts/check_ios_package.py` against the final
+ZIP. It checks archive integrity, device platform, a single-scene manifest, and
+that the named scene delegate and window connection callback are compiled into
+the packaged executable. The old 1.0.0 IPA fails this check. These package checks
+and a Simulator build do not confirm a corrected launch inside LiveContainer;
+that requires importing 1.0.1 and retesting on the phone.

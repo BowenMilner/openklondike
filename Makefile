@@ -378,11 +378,11 @@ IOS_BUNDLE_ID  := dev.bowenmilner.stillsolvable
 # CFBundleVersion must increase with every App Store upload, so it tracks the
 # release number exactly like ANDROID_VERSION_CODE. Clamped to >= 1 for local
 # builds with no release tags yet.
-IOS_BUILD_NUMBER ?= 1
+IOS_BUILD_NUMBER ?= 2
 ifeq ($(IOS_BUILD_NUMBER),0)
 IOS_BUILD_NUMBER := 1
 endif
-IOS_VERSION_NAME ?= 1.0.0
+IOS_VERSION_NAME ?= 1.0.1
 # Signing is opt-in: set IOS_SIGN_IDENTITY (and IOS_PROFILE) to produce an
 # App Store-submittable .ipa. Unset, the build stays unsigned for Device Farm,
 # which re-signs on upload. Mirrors how the Play AAB gates on a keystore.
@@ -429,7 +429,7 @@ $(IOS_SIM_APP): $(IOS_DEPS)
 IOS_IPA := build/openklondike.ipa
 IOS_APP_DIR := build/ios-device/Payload/$(IOS_APP_NAME).app
 ios: $(IOS_IPA)
-$(IOS_IPA): $(IOS_DEPS)
+$(IOS_IPA): $(IOS_DEPS) scripts/check_ios_package.py
 	$(call ios_build,iphoneos,arm64-apple-ios$(IOS_MIN),$(IOS_APP_DIR),build/ios-device/obj)
 	plist=$(IOS_APP_DIR)/Info.plist; \
 	/usr/libexec/PlistBuddy \
@@ -495,6 +495,7 @@ $(IOS_IPA): $(IOS_DEPS)
 	    codesign --verify --strict --verbose=2 $(IOS_APP_DIR); \
 	fi
 	cd build/ios-device && rm -f ../openklondike.ipa && zip -qr ../openklondike.ipa Payload
+	python3 scripts/check_ios_package.py $(IOS_IPA)
 	@if [ -n "$(IOS_SIGN_IDENTITY)" ]; then \
 	    echo "[ios] built $(IOS_IPA) (signed: $(IOS_SIGN_IDENTITY), build $(IOS_BUILD_NUMBER))"; \
 	else \

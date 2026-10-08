@@ -28,6 +28,9 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer make ios
 
 The output `build/openklondike.ipa` is an **unsigned arm64 iPhone app**, ready for
 a sideloading tool to sign. Signing credentials and built IPAs stay outside Git.
+Version 1.0.1 uses UIKit scenes to address the iOS 27 launch crash reported in
+LiveContainer 3.8.10. The device build checks the final IPA's scene configuration
+against its compiled delegate; a phone launch remains a separate acceptance check.
 See [solver QA](docs/solver-qa.md) for validation and limitations.
 
 The original project documentation follows.

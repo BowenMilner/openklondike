@@ -139,6 +139,7 @@ static void dispose_context(void) {
     fake_card_hit = false;
     mock_time = 0.0;
     rendered_solver_status = SOLVER_UNKNOWN;
+    ios_initialized = false;
     app_init();
 }
 
@@ -253,12 +254,28 @@ static void test_unknown_never_opens_loss_warning(void) {
     PASS("app_unknown_does_not_warn");
 }
 
+static void test_scene_reconnect_preserves_live_game(void) {
+    dispose_context();
+    next_input.select_pressed = true;
+    app_frame();
+    Game* game = ios_ctx.game;
+    Solver* solver = ios_ctx.solver;
+    if (!game || !solver) FAIL("scene reconnect fixture has no game");
+    Game snapshot = *game;
+    app_init();
+    if (ios_ctx.game != game || ios_ctx.solver != solver ||
+        memcmp(ios_ctx.game, &snapshot, sizeof(snapshot)) != 0)
+        FAIL("scene reconnect reset or abandoned the live game");
+    PASS("app_scene_reconnect_preserves_live_game");
+}
+
 int main(void) {
     test_new_game_uses_certified_bank_for_both_modes();
     test_move_invalidates_stale_proof_and_proven_loss_warns();
     test_menu_restore_returns_to_winnable_checkpoint();
     test_menu_undo_returns_to_winnable_snapshot();
     test_unknown_never_opens_loss_warning();
+    test_scene_reconnect_preserves_live_game();
     dispose_context();
     return 0;
 }

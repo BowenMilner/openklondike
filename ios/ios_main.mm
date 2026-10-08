@@ -1,6 +1,7 @@
 // iOS app shell: a UIKit application hosting a CAMetalLayer view driven by a
-// CADisplayLink. No Storyboard, no scene manifest — a classic AppDelegate
-// window. The display link runs the shared game loop (app_frame); touches and
+// CADisplayLink. UIKit creates a window scene from the bundle's scene manifest,
+// as required for apps linked against the iOS 27 SDK. The display link runs
+// the shared game loop (app_frame); touches and
 // gesture recognizers feed the platform layer (plat_ios) that the game polls.
 #import <UIKit/UIKit.h>
 
@@ -11,8 +12,10 @@
 
 @interface MetalView : UIView
 @property (nonatomic) BOOL started;
+@property (strong, nonatomic) CADisplayLink* displayLink;
 @property (nonatomic) NSInteger originX; // safe-area left inset, pixels
 @property (nonatomic) NSInteger originY; // safe-area top inset, pixels
+- (void)stopRendering;
 @end
 
 @implementation MetalView
@@ -55,9 +58,14 @@
     right.cancelsTouchesInView = NO;
     [self addGestureRecognizer:right];
 
-    CADisplayLink* link = [CADisplayLink displayLinkWithTarget:self selector:@selector(onFrame:)];
-    link.preferredFramesPerSecond = 60;
-    [link addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
+    self.displayLink = [CADisplayLink displayLinkWithTarget:self selector:@selector(onFrame:)];
+    self.displayLink.preferredFramesPerSecond = 60;
+    [self.displayLink addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
+}
+
+- (void)stopRendering {
+    [self.displayLink invalidate];
+    self.displayLink = nil;
 }
 
 - (void)layoutSubviews { [super layoutSubviews]; [self updateDrawableSize]; }
@@ -121,8 +129,48 @@
 
 @end
 
-@interface AppDelegate : UIResponder <UIApplicationDelegate>
+@interface OKSceneDelegate : UIResponder <UIWindowSceneDelegate>
 @property (strong, nonatomic) UIWindow* window;
+@end
+
+@implementation OKSceneDelegate
+
+- (void)scene:(UIScene*)scene willConnectToSession:(UISceneSession*)session
+        options:(UISceneConnectionOptions*)connectionOptions {
+    (void)session; (void)connectionOptions;
+    if (![scene isKindOfClass:[UIWindowScene class]]) return;
+    UIWindowScene* windowScene = (UIWindowScene*)scene;
+    self.window = [[UIWindow alloc] initWithWindowScene:windowScene];
+    CGRect bounds = self.window.bounds;
+    UIViewController* vc = [[UIViewController alloc] init];
+    vc.view = [[MetalView alloc] initWithFrame:bounds];
+    self.window.rootViewController = vc;
+    [self.window makeKeyAndVisible];
+
+}
+
+- (void)sceneDidBecomeActive:(UIScene*)scene {
+    (void)scene;
+    plat_ios_set_focus(true);
+}
+
+- (void)sceneWillResignActive:(UIScene*)scene {
+    (void)scene;
+    plat_ios_set_focus(false);
+    plat_ios_set_touches(NULL, 0);
+}
+
+- (void)sceneDidDisconnect:(UIScene*)scene {
+    (void)scene;
+    plat_ios_set_focus(false);
+    MetalView* view = (MetalView*)self.window.rootViewController.view;
+    [view stopRendering];
+    self.window = nil;
+}
+
+@end
+
+@interface AppDelegate : UIResponder <UIApplicationDelegate>
 @end
 
 @implementation AppDelegate
@@ -130,18 +178,17 @@
 - (BOOL)application:(UIApplication*)application
         didFinishLaunchingWithOptions:(NSDictionary*)launchOptions {
     (void)application; (void)launchOptions;
-    CGRect bounds = [UIScreen mainScreen].bounds;
-    self.window = [[UIWindow alloc] initWithFrame:bounds];
-    UIViewController* vc = [[UIViewController alloc] init];
-    vc.view = [[MetalView alloc] initWithFrame:bounds];
-    self.window.rootViewController = vc;
-    [self.window makeKeyAndVisible];
-
-    [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationDidBecomeActiveNotification
-        object:nil queue:nil usingBlock:^(NSNotification* n){ (void)n; plat_ios_set_focus(true); }];
-    [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationWillResignActiveNotification
-        object:nil queue:nil usingBlock:^(NSNotification* n){ (void)n; plat_ios_set_focus(false); }];
     return YES;
+}
+
+- (UISceneConfiguration*)application:(UIApplication*)application
+        configurationForConnectingSceneSession:(UISceneSession*)session
+        options:(UISceneConnectionOptions*)options {
+    (void)application; (void)options;
+    UISceneConfiguration* config = [[UISceneConfiguration alloc]
+        initWithName:@"Solitaire" sessionRole:session.role];
+    config.delegateClass = [OKSceneDelegate class];
+    return config;
 }
 
 @end

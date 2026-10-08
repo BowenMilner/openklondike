@@ -476,12 +476,16 @@ static void app_ctx_init(AppCtx* c) {
 // compiled out. The app shell (ios_main.mm) sets up the Metal layer, calls
 // app_init() once, then app_frame() from a CADisplayLink each frame.
 static AppCtx ios_ctx;
+static bool ios_initialized;
 
 void app_init(void) {
+    // A scene may reconnect while the app process (and its game) stays alive.
+    if (ios_initialized) return;
     srand((unsigned int)time(NULL));
     render_init();   // no-op on iOS (UIKit owns the window)
     sound_init();
     app_ctx_init(&ios_ctx);
+    ios_initialized = true;
 }
 
 void app_frame(void) { frame_step(&ios_ctx); }
